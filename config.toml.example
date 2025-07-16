@@ -1,0 +1,14 @@
+ca_cert_file = "./ca.cert"
+ca_key_file = "./ca.key"
+https_port = "4433"
+mqtts_port = "8884"
+mqtt_port = "1884"
+hostname = "ponder.lan"
+
+[home_assistant]
+address = ""
+port = 1883
+username = ""
+password = ""
+discovery_prefix = "homeassistant"
+ponder_prefix = "ponder"

@@ -1,0 +1,34 @@
+[package]
+name = "rmqtt-net"
+version = "0.1.2"
+description = "Basic Implementation of MQTT Server"
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-net"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+tls = []
+ws = []
+
+[dependencies]
+rmqtt-codec = "^0.1"
+tokio = { version = "1.44", default-features = false,  features = ["net", "time"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+log = "0.4"
+anyhow = "=1.0.94"
+thiserror = "=1.0.69"
+socket2 = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+bytestring = { version = "1.4", features = ["serde"] }
+nonzero_ext = "0.3"
+
+openssl = { version = "0.10", features = ["v110"] }
+tokio-openssl = "0.6"
+
+[dev-dependencies]
+simple_logger = "5"
+tokio = { version = "1.44", default-features = false,  features = ["full"] }
+once_cell = "=1.20.2"

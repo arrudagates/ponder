@@ -1,0 +1,22 @@
+[package]
+name = "ponder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+tracing = "0.1"
+rmqtt = { version = "0.15.0-rc.1", features = ["tls", "plugin"] }
+tide = "0.16.0"
+tide-rustls = "0.3.0"
+simple_logger = "5.0.0"
+log = "0.4.27"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+hex = "0.4.3"
+rumqttc = "0.24.0"
+config = { version = "0.15.13", default-features = false, features = ["toml"] }
+
+[patch.crates-io]
+rmqtt-net = { path = './rmqtt-net' }
