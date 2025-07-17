@@ -16,6 +16,7 @@ use tokio::sync::{
     mpsc::{self, Sender},
     Mutex,
 };
+use tokio_util::sync::CancellationToken;
 
 mod crc16;
 mod device;
@@ -181,6 +182,11 @@ async fn main() -> Result<()> {
         .build()?
         .try_deserialize()?;
 
+    let token = CancellationToken::new();
+    let broker_token = token.clone();
+    let ha_token = token.clone();
+    let receiver_token = token.clone();
+
     let (tx, mut rx) = mpsc::channel::<(String, String)>(100);
 
     // TODO: Implement provisioning.
@@ -198,29 +204,44 @@ async fn main() -> Result<()> {
     // });
 
     let scx = ServerContext::new().build().await;
+    let scx_clone = scx.clone();
 
     register(&scx, tx, true, false).await.unwrap();
 
-    MqttServer::new(scx.clone())
-        .listener(
-            Builder::new()
-                .name("external/tcp")
-                .laddr(([0, 0, 0, 0], config.mqtts_port).into())
-                // TODO: Generate certs if they don't exist.
-                .tls_cert(Some(config.ca_cert_file))
-                .tls_key(Some(config.ca_key_file))
-                .bind()?
-                .tls()?,
-        )
-        .listener(
-            Builder::new()
-                .name("/tcp")
-                .laddr(([0, 0, 0, 0], config.mqtt_port).into())
-                .bind()?
-                .tcp()?,
-        )
-        .build()
-        .start();
+    let broker_handler = tokio::spawn(async move {
+        let broker = MqttServer::new(scx_clone)
+            .listener(
+                Builder::new()
+                    .name("external/tcp")
+                    .laddr(([0, 0, 0, 0], config.mqtts_port).into())
+                    // TODO: Generate certs if they don't exist.
+                    .tls_cert(Some(config.ca_cert_file))
+                    .tls_key(Some(config.ca_key_file))
+                    .bind()
+                    .unwrap()
+                    .tls()
+                    .unwrap(),
+            )
+            .listener(
+                Builder::new()
+                    .name("/tcp")
+                    .laddr(([0, 0, 0, 0], config.mqtt_port).into())
+                    .bind()
+                    .unwrap()
+                    .tcp()
+                    .unwrap(),
+            )
+            .build();
+
+        tokio::select! {
+            _ = broker_token.cancelled() => {
+                eprintln!("broker_handler cancelled, shutting down");
+            }
+            b = broker.run() => {
+                b.unwrap();
+            }
+        }
+    });
 
     let mut mqttoptions = MqttOptions::new(
         "ponder",
@@ -266,42 +287,72 @@ async fn main() -> Result<()> {
     let device_manager_1 = Arc::new(Mutex::new(device_manager));
     let device_manager_2 = device_manager_1.clone();
 
-    tokio::spawn(async move {
-        while let Ok(notification) = eventloop.poll().await {
-            if let rumqttc::Event::Incoming(rumqttc::Incoming::Publish(rumqttc::Publish {
-                topic,
-                payload,
-                ..
-            })) = notification
-            {
-                if topic
-                    == String::from(format!("{}/status", config.home_assistant.discovery_prefix))
-                    && payload == String::from("online")
-                {
-                    println!("HA online, starting discovery process");
-
-                    device_manager_1.clone().lock().await.on_discovery().await;
+    let ha_handler = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = ha_token.cancelled() => {
+                    eprintln!("ha_handler cancelled, shutting down");
+                    break;
                 }
+                event = eventloop.poll() => {
+                    if let Ok(notification) = event {
+                        if let rumqttc::Event::Incoming(rumqttc::Incoming::Publish(rumqttc::Publish {
+                            topic,
+                            payload,
+                            ..
+                        })) = notification
+                        {
+                            if topic
+                                == String::from(format!("{}/status", config.home_assistant.discovery_prefix))
+                                && payload == String::from("online")
+                            {
+                                println!("HA online, starting discovery process");
 
-                if topic.starts_with(format!("{}/", config.home_assistant.ponder_prefix).as_str()) {
-                    let path_elements: Vec<&str> = topic
-                        [(config.home_assistant.ponder_prefix.len() + 1)..]
-                        .split("/")
-                        .collect();
+                                device_manager_1.clone().lock().await.on_discovery().await;
+                            }
 
-                    if path_elements.len() == 3 && path_elements[2] == "set" {
-                        let id = path_elements[0];
-                        let prop = path_elements[1];
+                            if topic.starts_with(format!("{}/", config.home_assistant.ponder_prefix).as_str()) {
+                                let path_elements: Vec<&str> = topic
+                                    [(config.home_assistant.ponder_prefix.len() + 1)..]
+                                    .split("/")
+                                    .collect();
 
-                        device_manager_1
-                            .clone()
+                                if path_elements.len() == 3 && path_elements[2] == "set" {
+                                    let id = path_elements[0];
+                                    let prop = path_elements[1];
+
+                                    device_manager_1
+                                        .clone()
+                                        .lock()
+                                        .await
+                                        .on_set_property(
+                                            id.to_string(),
+                                            prop.to_string(),
+                                            String::from_utf8(payload.to_vec()).unwrap(),
+                                        )
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let receiver_handler = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = receiver_token.cancelled() => {
+                    eprintln!("receiver_handler cancelled, shutting down");
+                    break;
+                }
+                maybe_received = rx.recv() => {
+                    if let Some((topic, payload)) = maybe_received {
+                        device_manager_2
                             .lock()
                             .await
-                            .on_set_property(
-                                id.to_string(),
-                                prop.to_string(),
-                                String::from_utf8(payload.to_vec()).unwrap(),
-                            )
+                            .on_publish(topic, payload)
                             .await;
                     }
                 }
@@ -309,13 +360,19 @@ async fn main() -> Result<()> {
         }
     });
 
-    while let Some((topic, payload)) = rx.recv().await {
-        device_manager_2
-            .lock()
-            .await
-            .on_publish(topic, payload)
-            .await;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            token.cancel();
+            client.disconnect().await.unwrap();
+        },
     }
+
+    let (broker_result, ha_result, receiver_result) =
+        tokio::join!(broker_handler, ha_handler, receiver_handler);
+
+    broker_result?;
+    ha_result?;
+    receiver_result?;
 
     Ok(())
 }

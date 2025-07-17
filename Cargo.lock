@@ -1907,6 +1907,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ponder"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "config",
+ "hex",
+ "log",
+ "rmqtt",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "simple_logger",
+ "tide",
+ "tide-rustls",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2988,25 +3008,6 @@ dependencies = [
  "parking_lot",
  "queue-ext",
  "thiserror",
-]
-
-[[package]]
-name = "thinq-server"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "config",
- "hex",
- "log",
- "rmqtt",
- "rumqttc",
- "serde",
- "serde_json",
- "simple_logger",
- "tide",
- "tide-rustls",
- "tokio",
- "tracing",
 ]
 
 [[package]]
